@@ -1,0 +1,35 @@
+{
+  "subject": "ctxlib",
+  "role": "primary",
+  "rag_k": 5,
+  "test": "McNemar exact (two-sided)",
+  "multiple_comparisons": "Holm-Bonferroni over 1 comparison(s) in this subject",
+  "comparisons": [
+    {
+      "A": "NO_RAG",
+      "B": "RAG",
+      "n_pairs": 24,
+      "table": {
+        "both_kill": 3,
+        "only_A_kills": 0,
+        "only_B_kills": 16,
+        "neither_kills": 5
+      },
+      "discordant_b": 0,
+      "discordant_c": 16,
+      "kills_A": 3,
+      "kills_B": 19,
+      "kill_rate_A": 0.125,
+      "kill_rate_B": 0.7916666666666666,
+      "p_exact": 3.0517578125e-05,
+      "risk_difference": 0.6666666666666666,
+      "ci95_risk_difference": [
+        0.4021238761215481,
+        0.8057631682481059
+      ],
+      "ci_method": "Newcombe 1998 method 10 (Wilson score, continuity-corrected phi)",
+      "note": null,
+      "p_holm": 3.0517578125e-05
+    }
+  ]
+}

@@ -1,0 +1,35 @@
+{
+  "subject": "sorts_focused",
+  "role": "primary",
+  "rag_k": 5,
+  "test": "McNemar exact (two-sided)",
+  "multiple_comparisons": "Holm-Bonferroni over 1 comparison(s) in this subject",
+  "comparisons": [
+    {
+      "A": "NO_RAG",
+      "B": "RAG",
+      "n_pairs": 9,
+      "table": {
+        "both_kill": 2,
+        "only_A_kills": 0,
+        "only_B_kills": 0,
+        "neither_kills": 7
+      },
+      "discordant_b": 0,
+      "discordant_c": 0,
+      "kills_A": 2,
+      "kills_B": 2,
+      "kill_rate_A": 0.2222222222222222,
+      "kill_rate_B": 0.2222222222222222,
+      "p_exact": 1.0,
+      "risk_difference": 0.0,
+      "ci95_risk_difference": [
+        -0.24669417853641243,
+        0.24669417853641246
+      ],
+      "ci_method": "Newcombe 1998 method 10 (Wilson score, continuity-corrected phi)",
+      "note": "no discordant pairs: the arms agree on every mutant, so McNemar's test has no information (p = 1 by definition)",
+      "p_holm": 1.0
+    }
+  ]
+}

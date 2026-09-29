@@ -1,0 +1,35 @@
+{
+  "subject": "schedule",
+  "role": "primary",
+  "rag_k": 5,
+  "test": "McNemar exact (two-sided)",
+  "multiple_comparisons": "Holm-Bonferroni over 1 comparison(s) in this subject",
+  "comparisons": [
+    {
+      "A": "NO_RAG",
+      "B": "RAG",
+      "n_pairs": 6,
+      "table": {
+        "both_kill": 0,
+        "only_A_kills": 0,
+        "only_B_kills": 0,
+        "neither_kills": 6
+      },
+      "discordant_b": 0,
+      "discordant_c": 0,
+      "kills_A": 0,
+      "kills_B": 0,
+      "kill_rate_A": 0.0,
+      "kill_rate_B": 0.0,
+      "p_exact": 1.0,
+      "risk_difference": 0.0,
+      "ci95_risk_difference": [
+        -0.3903342879021653,
+        0.3903342879021653
+      ],
+      "ci_method": "Newcombe 1998 method 10 (Wilson score, continuity-corrected phi)",
+      "note": "no discordant pairs: the arms agree on every mutant, so McNemar's test has no information (p = 1 by definition)",
+      "p_holm": 1.0
+    }
+  ]
+}

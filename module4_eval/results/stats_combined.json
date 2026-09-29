@@ -1,0 +1,39 @@
+{
+  "subject": "combined",
+  "role": "secondary",
+  "rag_k": 5,
+  "note": "Secondary, reported for completeness. Stratified by subject; the per-subject McNemar tests are the finding. This is not evidence that the effect holds across subjects.",
+  "multiple_comparisons": "Holm-Bonferroni over 1 comparison(s)",
+  "comparisons": [
+    {
+      "A": "NO_RAG",
+      "B": "RAG",
+      "n_pairs": 39,
+      "n_strata": 3,
+      "strata": {
+        "ctxlib": {
+          "n_pairs": 24,
+          "discordant_b": 0,
+          "discordant_c": 16
+        },
+        "schedule": {
+          "n_pairs": 6,
+          "discordant_b": 0,
+          "discordant_c": 0
+        },
+        "sorts_focused": {
+          "n_pairs": 9,
+          "discordant_b": 0,
+          "discordant_c": 0
+        }
+      },
+      "discordant_b": 0,
+      "discordant_c": 16,
+      "p_exact": 3.0517578125e-05,
+      "risk_difference_mh": 0.41025641025641024,
+      "method": "exact stratified McNemar (CMH for matched pairs), strata = subjects; MH risk difference, pair-count weights",
+      "note": null,
+      "p_holm": 3.0517578125e-05
+    }
+  ]
+}

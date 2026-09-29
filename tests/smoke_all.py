@@ -401,6 +401,95 @@ def test_headline_equal_budget():
           "mismatch rejected OK")
 
 
+def test_paired_stats():
+    import pandas as pd
+    from module4_eval.stats import mcnemar_exact, newcombe_paired_ci
+
+    # Newcombe (1998) Stat Med 17:2635, Table III, method 10; (e,f,g,h)
+    # maps to our (a, c, b, d). Paper prints 4 d.p. (one row differs by
+    # 7e-5 from its own method-8 value under the stated rule), so tol 1e-4.
+    for (e, f, g, h), ref in [((20, 12, 2, 16), (0.0562, 0.3292)),
+                              ((35, 14, 0, 1), (0.1461, 0.4175)),
+                              ((1, 98, 0, 1), (0.9171, 0.9916)),
+                              ((0, 30, 0, 0), (0.8395, 1.0))]:
+        got = newcombe_paired_ci(e, g, f, h)
+        assert all(abs(x - y) <= 1e-4 for x, y in zip(got, ref)), (got, ref)
+
+    idx = [f"m{i}" for i in range(20)]
+    a_k = pd.Series([False] * 20, index=idx)
+    b_k = pd.Series([True] * 16 + [False] * 4, index=idx)
+    r = mcnemar_exact(a_k, b_k)
+    assert (r["discordant_b"], r["discordant_c"]) == (0, 16)
+    assert abs(r["p_exact"] - 2 * 0.5 ** 16) < 1e-12
+    assert abs(r["risk_difference"] - 0.8) < 1e-12
+
+    # zero discordant pairs: defined result, no crash
+    z = mcnemar_exact(a_k, a_k.copy())
+    assert z["p_exact"] == 1.0 and z["risk_difference"] == 0.0 and z["note"]
+    lo, hi = z["ci95_risk_difference"]
+    assert lo <= 0.0 <= hi
+    from module4_eval.stats import holm, stratified_mcnemar
+    assert holm([0.02]) == [0.02]                      # identity for m=1
+    got = holm([0.01, 0.04, 0.03])                     # 3*0.01, max(2*0.03, .), 1*0.04 -> 0.06
+    assert all(abs(x - y) < 1e-12 for x, y in zip(got, [0.03, 0.06, 0.06])), got
+    assert holm([0.5, 0.6]) == [1.0, 1.0]              # capped at 1
+
+    # stratified exact == pooled exact for matched pairs (by construction)
+    s1 = (a_k, b_k)
+    s2 = (pd.Series([True, False], index=["x", "y"]),
+          pd.Series([False, True], index=["x", "y"]))
+    st = stratified_mcnemar({"s1": s1, "s2": s2})
+    assert (st["discordant_b"], st["discordant_c"]) == (1, 17)
+    pooled = mcnemar_exact(pd.concat([s1[0], s2[0]]), pd.concat([s1[1], s2[1]]))
+    assert abs(st["p_exact"] - pooled["p_exact"]) < 1e-15
+    assert abs(st["risk_difference_mh"] - pooled["risk_difference"]) < 1e-15
+    print("  stats: McNemar exact, zero-discordant, Newcombe CI vs "
+          "published table, Holm, stratified OK")
+
+
+def test_three_arm_pipeline():
+    """FULL_CONTEXT has no real data yet: prove the 3-arm path works now."""
+    import random
+    from module4_eval.metrics_logger import results_to_frame
+    from module4_eval.headline_analysis import (
+        headline_frame, headline_table, headline_markdown)
+    from module4_eval.stats import subject_stats, combined_stats
+
+    random.seed(11)
+    rows = []
+    for subj, n in (("s1", 12), ("s2", 8)):
+        for i in range(n):
+            mc = ("sdl", "semantic")[i % 2]
+            for cond, k, p in (("NO_RAG", None, .2), ("FULL_CONTEXT", None, .5),
+                               ("RAG", 3, .6), ("RAG", 5, .7), ("RAG", 8, .6)):
+                kill = random.random() < p
+                rows.append({"mutant_id": f"{subj}_{i}", "subject": subj,
+                             "condition": cond, "k": k, "mutation_class": mc,
+                             "status": "KILLED" if kill else "SURVIVED",
+                             "valid_test_produced": True, "retry_used": False,
+                             "wall_seconds": 1.0})
+    df = results_to_frame(rows)
+    sel = headline_frame(df, k=5)
+    assert sorted(set(sel["condition"])) == ["FULL_CONTEXT", "NO_RAG", "RAG"]
+    assert len(sel) == 3 * 20                     # one attempt/mutant/arm
+    t = headline_table(sel)
+    md = headline_markdown(t)
+    assert "FULL_CONTEXT: kills / attempts" in md and "RAG (k=5)" in md
+
+    s = subject_stats(sel[sel["subject"] == "s1"], "s1")
+    pairs = [(c["A"], c["B"]) for c in s["comparisons"]]
+    assert pairs == [("NO_RAG", "FULL_CONTEXT"), ("NO_RAG", "RAG"),
+                     ("FULL_CONTEXT", "RAG")], pairs
+    for c in s["comparisons"]:
+        assert c["p_holm"] >= c["p_exact"] and c["n_pairs"] == 12
+    comb = combined_stats(sel)
+    assert comb["role"] == "secondary" and len(comb["comparisons"]) == 3
+    assert all(c["n_strata"] == 2 and c["n_pairs"] == 20
+               for c in comb["comparisons"])
+    print("  three-arm: headline table + 3 pairwise McNemar w/ Holm + "
+          "stratified combined OK")
+
+
 def test_core_misc():
     from core.hardware import recommend_model
     from core.guards import assert_fork_capable_linux, EnvironmentGuardError
@@ -491,7 +580,9 @@ def test_checkpoint():
 ALL = [test_sdl_generator, test_hom_combiner, test_schema_roundtrip,
        test_mutmut_results_parser, test_ollama_client_rest,
        test_prompt_templates, test_agentic_retry_loop,
-       test_metrics_and_figures, test_headline_equal_budget, test_core_misc,
+       test_metrics_and_figures, test_headline_equal_budget, test_paired_stats,
+       test_three_arm_pipeline,
+       test_core_misc,
        test_input_security, test_checkpoint]
 
 if __name__ == "__main__":
