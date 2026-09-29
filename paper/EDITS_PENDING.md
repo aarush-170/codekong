@@ -112,3 +112,75 @@ No recorded experiment backs these claims. If P0-6 is not run before the deadlin
 5. §V-F, the whole subsection.
 6. §VIII: "and an ablation shows both indexing constants and retrieving referenced symbols are required."
 7. §VI: the recommendation to index "not only functions but the constants and tables that encode a system’s domain rules" leans on the ablation. (`DECISION`)
+
+---
+
+## E9 · References [6], [11], [12] and new entries — `READY` · source: P0-5 (`p0-5-related-work`)
+
+Details and verification sources for every entry are in `paper/related_work_additions.md`.
+
+**[6] Current:**
+
+> [6] N. Alshahwan, J. Chheda, A. Finogenova, B. Gokkaya, et al., “Automated unit test improvement using large language models at Meta,” in Proc. ACM FSE (Industry), 2024.
+
+**Replace with:**
+
+> [6] N. Alshahwan, J. Chheda, A. Finogenova, B. Gokkaya, et al., “Automated unit test improvement using large language models at Meta,” in Companion Proc. ACM FSE, 2024, pp. 185–196, doi: 10.1145/3663529.3663839.
+
+**[11] Current:**
+
+> [11] B. Tip, J. Bell, and M. Schäfer, “LLMorpheus: Mutation testing using large language models,” arXiv:2404.09952, 2024.
+
+**Replace with:**
+
+> [11] F. Tip, J. Bell, and M. Schäfer, “LLMorpheus: Mutation testing using large language models,” IEEE Trans. Softw. Eng., vol. 51, no. 6, pp. 1645–1665, 2025, doi: 10.1109/TSE.2025.3562025.
+
+**[12] Current:**
+
+> [12] Y. Wang et al., “Retrieval-augmented mutant generation via historical bug-fix pairs,” 2025.
+
+**Replace with:**
+
+> [12] B. Wang, M. Deng, M. Chen, C. Yang, Y. Lin, M. Harman, M. Papadakis, and J. M. Zhang, “Boosting LLMs for mutation generation,” Proc. ACM Softw. Eng., vol. 3, no. FSE, pp. 3368–3391, 2026, doi: 10.1145/3808156.
+
+**Append after [20]:**
+
+> [21] J. Shin, N. Shiri Harzevili, R. Aleithan, H. Hemmati, and S. Wang, “Retrieval-augmented test generation: How far are we?,” in Proc. IEEE/ACM ICSE, 2026, pp. 767–779, doi: 10.1145/3744916.3773163.
+>
+> [22] Z. Zhang, X. Liu, Y. Lin, X. Gao, H. Sun, and Y. Yuan, “Reference-based retrieval-augmented unit test generation,” ACM Trans. Softw. Eng. Methodol., vol. 35, no. 6, pp. 1–34, 2026, doi: 10.1145/3765758.
+>
+> [23] M. Harman, J. Ritchey, I. Harper, S. Sengupta, K. Mao, A. Gulati, C. Foster, and H. Robert, “Mutation-guided LLM-based test generation at Meta,” in Companion Proc. ACM FSE, 2025, pp. 180–191, doi: 10.1145/3696630.3728544.
+
+Cite APT/RefTest **once**, as [22]. The arXiv preprint 2410.13542 is the same study. Renumber in citation order during the final pass.
+
+---
+
+## E10 · §II-C, SMART sentence — `READY` · source: P0-5
+
+**Current:**
+
+> and retrieval-boosted mutant generation [12] fetches historical bug-fix pairs.
+
+**Replace with:**
+
+> and SMART [12] retrieves from a vectorised dataset of real-world bugs to generate more realistic mutants.
+
+---
+
+## E11 · §II-B, retrieval-for-test-generation paragraph — `DECISION` · source: P0-5
+
+The current sentence "These methods are closed-book with respect to the wider repository." cannot be followed by RefTest [22], which retrieves in-project tests. Proposed: **insert after** “Our study isolates what retrieved codebase context adds on top of a MuTAP-style baseline.”
+
+> Retrieval has recently been applied to test generation directly. Shin et al. [21] retrieve API documentation, GitHub issues and Stack Overflow posts for ML-library APIs and find that RAG does not improve test correctness, though it raises line coverage by 6.5% on average. Zhang et al. [22] retrieve existing tests of related in-project methods to guide the generation of new ones. Meta’s ACH [23] generates concern-specific mutants that current tests miss and then generates tests to kill them. We differ in target and in what is retrieved: we attack surviving mutants under a two-sided kill criterion, retrieve the definitions a unit reads, and isolate when that context changes the outcome.
+
+Decision needed: whether "These methods are closed-book…" should be narrowed to name only the systems verified to be closed-book (MuTAP [5], TestPilot [9]).
+
+---
+
+## E12 · §I, "closed-book" and novelty claims — `DECISION` · source: P0-5
+
+**Current (§I):**
+
+> Industrial systems apply the idea at scale [6]. A shared assumption unites them: generation is closed-book—the model sees only the unit under test, not the surrounding codebase.
+
+Adding [22] and [23] makes "a shared assumption unites them" false for [22] and unverified for [23]. Also, §I contribution 2 claims the dependency-aware retriever as a contribution, but RefTest's abstract names "referenced variables" as context existing approaches already use. Suggested direction, not final wording: frame the contribution as the *controlled measurement* of when codebase context helps mutant killing, rather than the novelty of retrieving referenced definitions.
