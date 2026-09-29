@@ -374,6 +374,33 @@ def test_metrics_and_figures():
 
 
 # ------------------------------------------------ misc core
+def test_headline_equal_budget():
+    from module4_eval.metrics_logger import results_to_frame
+    from module4_eval.headline_analysis import (
+        headline_frame, headline_table, headline_markdown, ksweep_table)
+
+    df = results_to_frame(_synthetic_results())
+    sel = headline_frame(df, k=5)
+    # one attempt per mutant per arm: RAG restricted to k=5 only
+    assert set(sel.loc[sel["condition"] == "RAG", "k"]) == {5}
+    t = headline_table(sel)
+    tot = t[(t["subject"] == "ALL") & (t["mutation_class"] == "ALL")]
+    assert tot["attempts"].tolist() == [80, 80], tot
+    assert "/80 (" in headline_markdown(t)
+    assert set(ksweep_table(df)["k"]) == {3, 5, 8}
+
+    # unequal mutant sets across arms must fail loudly, not silently compare
+    bad = df[~((df["condition"] == "RAG") & (df["mutant_id"] == "sdl_0"))]
+    try:
+        headline_frame(bad, k=5)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("mismatched mutant sets were not rejected")
+    print("  headline: k=5 equal budget, explicit denominators, "
+          "mismatch rejected OK")
+
+
 def test_core_misc():
     from core.hardware import recommend_model
     from core.guards import assert_fork_capable_linux, EnvironmentGuardError
@@ -464,7 +491,7 @@ def test_checkpoint():
 ALL = [test_sdl_generator, test_hom_combiner, test_schema_roundtrip,
        test_mutmut_results_parser, test_ollama_client_rest,
        test_prompt_templates, test_agentic_retry_loop,
-       test_metrics_and_figures, test_core_misc,
+       test_metrics_and_figures, test_headline_equal_budget, test_core_misc,
        test_input_security, test_checkpoint]
 
 if __name__ == "__main__":
