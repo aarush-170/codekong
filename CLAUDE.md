@@ -1,5 +1,8 @@
 # CLAUDE.md — session handover for AI assistants working on CodeKong
 
+> **ACTIVE WORK (2026-10-01): paper repair for AST 2027 is in progress. Read `HANDOFF_P0.md` FIRST** —
+> it is the authoritative current state, decisions, and next steps. Work lives on branch `handoff-p0`.
+
 You are picking up a working research project. Read this before changing
 anything. README.md explains the project to humans; this file carries the
 invariants, hazards, and open work an AI session needs to continue safely.
@@ -32,7 +35,7 @@ paper/codekong_notes.md as a threat to validity.
     run_pipeline.py       research entry point (per subject repo, from config)
     generate_tests.py     user-facing single-file flow (used by the web UI)
     frontend/             Flask UI; data.py is flask-free and unit-testable
-    tests/smoke_all.py    offline test suite — MUST stay green (9/9)
+    tests/smoke_all.py    offline test suite — MUST stay green (14/14)
 
 ## Invariants — do not break these
 
@@ -78,7 +81,7 @@ paper/codekong_notes.md as a threat to validity.
 
 ## Working norms for this repo
 
-- After ANY change: python tests/smoke_all.py must print 9/9. Add checks
+- After ANY change: python tests/smoke_all.py must print 14/14. Add checks
   there for new subsystems.
 - Show real command output when verifying; never describe expected behavior
   as if observed. If a number looks too good, suspect a bug.
@@ -87,20 +90,20 @@ paper/codekong_notes.md as a threat to validity.
 
 ## Current state / open work (update this section as you go)
 
-- Model-tier question RESOLVED (2026-07-09): qwen2.5-coder:7b killed 8/8 on
-  the capability probe (`python generate_tests.py --file demo_range_utils.py
-  --description "numeric range utilities" --limit 8 --skip-semantic --no-rag`)
-  on the Windows dev box. Config stays at qwen2.5-coder:7b; no need for 14b.
-  Re-run that probe (kills>0 = model OK) if moving to different hardware, then
-  `python run_pipeline.py --repo sorts --phase generate --limit 25`.
-- Full research runs (both subjects, both conditions, k sweep) not yet
-  executed -> Research Questions page shows empty states until then.
+See `HANDOFF_P0.md` (authoritative). The previous contents of this section
+were stale: the research runs WERE executed in July 2026 and a paper draft
+exists; it is now being repaired task by task.
+
+Older items that are still valid:
+
+- Model tier: qwen2.5-coder:7b passed the capability probe (2026-07-09):
+  `python generate_tests.py --file demo_range_utils.py --description
+  "numeric range utilities" --limit 8 --skip-semantic --no-rag`. Re-run it
+  (kills>0 = model OK) if moving to different hardware.
 - frontend/app.py ABOUT template has placeholder sections (marked # EDIT
   HERE) awaiting real team/course details.
 - Demo mode timing (DEMO_LIMIT=5, DEMO_K=3 in frontend/app.py) assumes
   ~5 min on the original hardware — dry-run and tune per machine.
-- Optional: a third subject repo (small, pure-Python, well-tested) may be
-  added to config.yaml subjects; verify it clones before committing to it.
 
 ## Setup pointers
 

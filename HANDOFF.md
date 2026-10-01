@@ -1,3 +1,5 @@
+> **SUPERSEDED (2026-10-01): see `HANDOFF_P0.md`.** Kept for history; its git/path details are out of date.
+
 # HANDOFF — CodeKong session continuation
 
 You are picking up the CodeKong project mid-stream from a previous Claude Code session.
