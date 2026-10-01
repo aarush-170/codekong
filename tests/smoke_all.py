@@ -692,8 +692,44 @@ def test_tagged_runs():
         pass
     else:
         raise AssertionError("unpaired ablation arm accepted")
+    # --- FULL_CONTEXT: whole repo minus tests minus ONLY the function under test
+    from module2_rag.full_context import build_full_context, OMITTED
+    with tempfile.TemporaryDirectory() as td:
+        repo = Path(td)
+        (repo / "pkg").mkdir()
+        (repo / "pkg" / "rates.py").write_text("RATE = 5\n", encoding="utf-8")
+        (repo / "pkg" / "billing.py").write_text(
+            "from pkg.rates import RATE\n\nclass B:\n"
+            "    def total(self, x):\n        return x * RATE\n"
+            "    def other(self):\n        return 1\n\n"
+            "def helper():\n    return 2\n", encoding="utf-8")
+        (repo / "pkg" / "test_billing.py").write_text(
+            "def test_x():\n    assert True\n", encoding="utf-8")
+        (repo / "pkg" / "broken.py").write_text("def (:\n", encoding="utf-8")
+        fm = {"file": "pkg/billing.py", "function": "B.total"}
+        ch = build_full_context(repo, "", fm)
+        files = [c["metadata"]["file"] for c in ch]
+        assert files == ["pkg/billing.py", "pkg/rates.py"], files  # no tests/broken
+        doc = {c["metadata"]["file"]: c["document"] for c in ch}
+        assert "return x * RATE" not in doc["pkg/billing.py"]
+        assert OMITTED in doc["pkg/billing.py"]
+        assert "def other" in doc["pkg/billing.py"]
+        assert "def helper" in doc["pkg/billing.py"]
+        assert doc["pkg/rates.py"] == "RATE = 5\n"
+        import ast as _ast
+        _ast.parse(doc["pkg/billing.py"])
+        # a mutant in another file leaves every file whole
+        ch2 = build_full_context(repo, "", {"file": "pkg/rates.py",
+                                            "function": "z"})
+        assert "return x * RATE" in {c["metadata"]["file"]: c["document"]
+                                     for c in ch2}["pkg/billing.py"]
+    rc, err = cli("--phase", "generate", "--results-tag", "t",
+                  "--retriever-variant", "no_depfetch",
+                  "--conditions", "FULL_CONTEXT")
+    assert rc == 2 and "--conditions RAG" in err, (rc, err)
     print("  tagged runs: id selection, tag refusal, CLI guards, retriever "
-          "variants, call-log tags/cost, loaders, ablation table OK")
+          "variants, FULL_CONTEXT builder, call-log tags/cost, loaders, "
+          "ablation table OK")
 
 
 def test_core_misc():

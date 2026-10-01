@@ -31,7 +31,7 @@ These are checked in Step 4; if any is false, the session stops there.
 
 - [ ] A branch containing the P0-3/P0-6 code is pushed to
       `https://github.com/aarush-170/codekong`. Its name is written here:
-      `BRANCH=__________` (the authors fill this in). That branch must provide
+      `BRANCH=p0-3-code-prereqs`. That branch must provide
       these `run_pipeline.py` options, which **do not exist on `main`**:
   - `--results-tag TAG`: writes `raw_TAG.csv`, `summary_TAG.csv`,
     `records_TAG.json` and `_checkpoint_TAG.jsonl`, and **refuses to run if
@@ -40,7 +40,9 @@ These are checked in Step 4; if any is false, the session stops there.
   - `--mutant-ids-from CSV`: restricts the run to exactly the `mutant_id`s
     in that CSV and exits with an error if any are missing from
     `surviving_mutants.json` (no `--limit` sampling).
-  - `--conditions FULL_CONTEXT`: the P0-3 arm.
+  - `--conditions FULL_CONTEXT`: the P0-3 arm. Context = source of every
+    non-test file in the pinned subject, minus only the function under test
+    (author decision 2026-10-01); same template, loop, validator, temperature.
   - `--retriever-variant {full,no_constants,no_depfetch}`: the P0-6 arms,
     implemented as retrieval-time switches on the *existing* index (no
     re-indexing).
@@ -285,7 +287,7 @@ If it printed STOP, stop. Otherwise fill in `BRANCH` from the Prerequisites, the
 
 ```bash
 source ~/p0-session/env.sh
-BRANCH=__________
+BRANCH=p0-3-code-prereqs
 cd "$NEW" && git checkout "$BRANCH" 2>&1 | tee -a "$LOGS/03_clone.log"
 git rev-parse HEAD | tee "$EV/03_new_git_sha.txt"
 cp -a "$(cat "$EV/MUTANT_FILE.txt")" "$NEW/module1_mutation/surviving_mutants.json"
@@ -381,6 +383,29 @@ Check:
 ```bash
 python -c "import pandas as pd; d=pd.read_csv('module4_eval/results/raw_ctxlib_fullcontext.csv'); print(len(d), 'rows (expect 24)'); print(d.status.value_counts().to_dict())" 2>&1 | tee "$EV/06_fullcontext_check.txt"
 ```
+
+**Prompt-truncation check (do this before reading the numbers).** FULL_CONTEXT
+prompts are the longest in the study, and the client does not set `num_ctx`
+(same as July). If Ollama's context window is smaller than the prompt, it
+truncates silently. Compare the largest prompt of each arm with the window:
+
+```bash
+python - <<'PY' 2>&1 | tee "$EV/06_prompt_sizes.txt"
+import json, collections
+mx = collections.defaultdict(int)
+for line in open("module3_llm/llm_calls.jsonl", encoding="utf-8"):
+    r = json.loads(line); p = r.get("purpose", "")
+    if p.startswith("testgen:"):
+        key = p.split(":")[1] + ":" + (p.split("tag=")[1].split(":")[0] if "tag=" in p else "-")
+        mx[key] = max(mx[key], r.get("prompt_eval_count") or 0)
+for k, v in sorted(mx.items()): print(k, "max prompt_eval_count =", v)
+PY
+curl -s http://localhost:11434/api/show -d '{"model":"qwen2.5-coder:7b"}' | grep -io 'num_ctx[^,]*' | head -3
+```
+
+If the FULL_CONTEXT maximum is at or above the reported `num_ctx` (or at 2048 /
+4096 when none is reported), the arm was truncated: say so in the report and
+do not change anything. The authors decide what it means.
 
 Report the numbers whichever way they fall. Do not change anything and re-run
 to get different ones.

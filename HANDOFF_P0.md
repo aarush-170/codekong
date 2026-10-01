@@ -77,7 +77,7 @@ Where this file and the brief disagree, this file wins.
 | Claims audit (fabrication sweep) | **Done**, committed `cdce066` | `paper/CLAIMS_AUDIT.md` |
 | E11/E12 intro reframe | **Drafted, awaiting author approval** (`PROPOSED`) `757fa03` | EDITS E13–E18 |
 | WSL runbook | **Done** `c7223be`; **cannot be executed yet** (needs code, next row) | `RUNBOOK_WSL_SESSION.md` |
-| **Code prerequisites for P0-3/P0-6** | **NOT STARTED — next step** (author has not yet said go) | spec in §7 |
+| **Code prerequisites for P0-3/P0-6** | **Done** on branch `p0-3-code-prereqs` (on top of `handoff-p0`); FULL_CONTEXT = whole non-test repo minus only the function under test (author decision 2026-10-01); smoke 15/15 | §7, `module2_rag/full_context.py`, `module4_eval/ablation.py` |
 | P0-3 FULL_CONTEXT arm (run) | Pending — WSL session | runbook Step 6 |
 | P0-6 retriever ablation (run) | Pending — WSL session | runbook Step 7 |
 | P0-4 syntactic class / mutmut | Pending — evidence capture in WSL session, parser fix after | runbook Step 8 |
@@ -125,7 +125,7 @@ Plus: stale ChromaDB index (current indexer → 47 ctxlib chunks, paper says 49;
 - `compare_conditions.load_all_results` globs `raw_*.csv` and `drop_duplicates(subset=[mutant_id, condition, k, subject])` → any extra tagged `raw_ctxlib_*.csv` with the same subject/condition would be **silently merged/deduplicated** into the headline. Analysis must select files explicitly.
 - Generated RAG test files are named without k (`<id>_RAG_a1.py`), so each k overwrites the previous one on disk.
 
-## 7. NEXT STEP: implement the code prerequisites (on this Windows box)
+## 7. DONE (2026-10-01, branch `p0-3-code-prereqs`): code prerequisites. Original spec kept below.
 
 Not started; **ask the author for go-ahead first** (they were asked; no answer yet). Branch: create from `handoff-p0` (the tip). Everything must be smoke-testable offline with fakes (see existing `test_agentic_retry_loop` / `test_ollama_client_rest` patterns in `tests/smoke_all.py`).
 
@@ -146,7 +146,7 @@ Interface the runbook depends on (`RUNBOOK_WSL_SESSION.md` §0 — keep these na
 4. Keep or drop the runbook's same-day drift re-run (Step 5, ~25 min) — recommended keep.
 5. `module4_eval/results/rq_answers.json` and `compare_conditions.py` still report pooled-over-k numbers. Point them at the k=5 headline, or just stop citing them?
 6. How to disclose findings 5–6 (undisclosed sampling, unreported runs) — the authors' call; nothing drafted yet.
-7. FULL_CONTEXT definition ambiguity (§7 item 3).
+7. ~~FULL_CONTEXT definition ambiguity~~ — resolved 2026-10-01: exclude only the function under test.
 
 ## 9. Git state and how to resume
 

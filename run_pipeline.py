@@ -110,6 +110,20 @@ def phase_generate(cfg, args, client):
             ck.record(r)
             all_results.append(r)
 
+    if "FULL_CONTEXT" in conditions:
+        from module2_rag.full_context import build_full_context
+        sub = cfg["subjects"][args.repo]
+        pinned = Path(cfg["_project_root"]) / sub["path"]
+        for m in mutants:
+            if ck.is_done(m["mutant_id"], "FULL_CONTEXT", None):
+                continue
+            chunks = build_full_context(pinned, sub.get("subdir", ""), m)
+            r = generate_and_validate(cfg, args.repo, m, chunks,
+                                      "FULL_CONTEXT", client, run_tag=tag)
+            print(f"[FULL_CONTEXT] {m['mutant_id']}: {r['status']}")
+            ck.record(r)
+            all_results.append(r)
+
     if "RAG" in conditions:
         ks = args.k or cfg["rag"]["k_values"]
         retriever = Retriever(cfg, args.repo, args.retriever_variant)
@@ -147,7 +161,7 @@ def main():
     ap.add_argument("--phase", default="all",
                     choices=["all", "mutate", "index", "generate", "evaluate"])
     ap.add_argument("--conditions", default="both",
-                    choices=["both", "RAG", "NO_RAG"])
+                    choices=["both", "RAG", "NO_RAG", "FULL_CONTEXT"])
     ap.add_argument("--k", type=int, nargs="*", default=None)
     ap.add_argument("--limit", type=int, default=None,
                     help="cap number of mutants (seeded random sample)")
