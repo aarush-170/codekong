@@ -209,8 +209,8 @@ def _line(s: dict) -> str:
     return head + "\n" + "\n".join(rows)
 
 
-def main(cfg: dict) -> dict[str, Path]:
-    sel = headline_frame(load_all_results(cfg))
+def main(cfg: dict, tags: list[str] | None = None) -> dict[str, Path]:
+    sel = headline_frame(load_all_results(cfg, tags=tags))
     outdir = resolve(cfg, cfg["output"]["results_dir"])
     results = [subject_stats(g, s) for s, g in sel.groupby("subject")]
     results.append(combined_stats(sel))
@@ -226,5 +226,10 @@ def main(cfg: dict) -> dict[str, Path]:
 
 
 if __name__ == "__main__":
+    import argparse
     from core.config import load_config
-    main(load_config())
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--tags", nargs="*", default=None,
+                    help="explicit raw_<tag>.csv files to analyse (default: "
+                         "all untagged raw_*.csv)")
+    main(load_config(), ap.parse_args().tags)

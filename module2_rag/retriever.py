@@ -17,8 +17,23 @@ from core.config import resolve
 from module2_rag.rag_indexer import collection_name, _lazy_imports
 
 
+VARIANTS = ("full", "no_constants", "no_depfetch")
+
+
 class Retriever:
-    def __init__(self, cfg: dict, subject_key: str):
+    """variant (P0-6 ablation; retrieval-time switches on the SAME index, so
+    every other chunk, stale ones included, is identical to the full arm):
+      full          — as published
+      no_constants  — chunks with metadata kind == "constants" are dropped from
+                      both the similarity results and the dependency fetch
+      no_depfetch   — the dependency-aware seed fetch is skipped entirely
+    """
+
+    def __init__(self, cfg: dict, subject_key: str, variant: str = "full"):
+        if variant not in VARIANTS:
+            raise ValueError(f"unknown retriever variant {variant!r}; "
+                             f"expected one of {VARIANTS}")
+        self.variant = variant
         chromadb, SentenceTransformer = _lazy_imports()
         self._model = SentenceTransformer(cfg["rag"]["embedding_model"])
         client = chromadb.PersistentClient(
@@ -92,8 +107,9 @@ class Retriever:
         merged: dict[str, dict] = {}
         # Dependency-aware seeds first: definitions of the symbols the function
         # references (constants/tables/helpers), guaranteed into the candidate set.
-        for c in self._fetch_definitions(self.referenced_symbols(mutant)):
-            merged[c["id"]] = c
+        if self.variant != "no_depfetch":
+            for c in self._fetch_definitions(self.referenced_symbols(mutant)):
+                merged[c["id"]] = c
         for qi in range(len(queries)):
             for cid, doc, meta, dist in zip(res["ids"][qi], res["documents"][qi],
                                             res["metadatas"][qi],
@@ -103,6 +119,9 @@ class Retriever:
                                    "metadata": meta, "distance": dist}
         # Drop the mutant's own function verbatim (already in the prompt), then
         # keep the k nearest (depended-on definitions sort to the front).
+        if self.variant == "no_constants":
+            merged = {i: c for i, c in merged.items()
+                      if c["metadata"].get("kind") != "constants"}
         candidates = [c for c in merged.values()
                       if not (c["metadata"].get("qualname") == mutant["function"]
                               and c["metadata"].get("file") == mutant["file"]
@@ -111,6 +130,6 @@ class Retriever:
 
 
 def retrieve_for_mutants(cfg: dict, subject_key: str, mutants: list[dict],
-                         k: int) -> dict[str, list[dict]]:
-    r = Retriever(cfg, subject_key)
+                         k: int, variant: str = "full") -> dict[str, list[dict]]:
+    r = Retriever(cfg, subject_key, variant)
     return {m["mutant_id"]: r.retrieve(m, k) for m in mutants}

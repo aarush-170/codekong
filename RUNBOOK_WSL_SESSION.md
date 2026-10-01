@@ -203,7 +203,8 @@ if os.path.exists(f"{EV}/llm_calls.jsonl"):
         try: r = json.loads(line)
         except Exception: continue
         p = r.get("purpose", "")
-        if p.startswith("testgen:") and p.split(":")[-1] in ids:
+        # purpose = testgen:<cond>:<class>:<mutant_id>[:tag=..]:aN  (aN added by the client)
+        if p.startswith("testgen:") and len(p.split(":")) > 3 and p.split(":")[3] in ids:
             calls.append(r)
 utc = lambda t: dt.datetime.fromtimestamp(t, dt.timezone.utc).isoformat()
 print("ctxlib testgen calls in log:", len(calls))

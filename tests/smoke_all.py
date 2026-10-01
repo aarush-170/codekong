@@ -216,11 +216,13 @@ class MockClient:
         self.scripted = list(scripted)
         self.calls_made = 0
         self.prompts = []
+        self.purposes = []
 
     def generate_python(self, system_prompt, user_prompt, temperature=None,
                         purpose=""):
         self.calls_made += 1
         self.prompts.append(user_prompt)
+        self.purposes.append(purpose)
         return self.scripted.pop(0) if self.scripted else None
 
 
@@ -311,6 +313,19 @@ def test_agentic_retry_loop():
             rec3 = test_gen_agent.generate_and_validate(
                 cfg, "mini", mutant, None, "NO_RAG", MockClient([]))
             assert rec3["status"] == "GEN_FAILED", rec3
+
+            # Scenario 4: tagged run — tag lands in the record, the call-log
+            # purpose and the persisted test filename (arms don't overwrite).
+            tc = MockClient([strong])
+            rec4 = test_gen_agent.generate_and_validate(
+                cfg, "mini", mutant, None, "NO_RAG", tc, run_tag="t1",
+                variant=None)
+            assert rec4["status"] == "KILLED" and rec4["results_tag"] == "t1"
+            assert tc.purposes == ["testgen:NO_RAG:semantic:"
+                                   "semantic_add_deadbeef:tag=t1"], tc.purposes
+            assert rec4["test_file"].endswith(
+                "semantic_add_deadbeef_NO_RAG_t1_a1.py"), rec4["test_file"]
+            assert rec["test_file"].endswith("semantic_add_deadbeef_NO_RAG_a2.py")
 
             # Original file must be intact after all applies.
             scratch_file = td / "_scratch" / "mini" / "mathx.py"
@@ -490,6 +505,197 @@ def test_three_arm_pipeline():
           "stratified combined OK")
 
 
+def test_tagged_runs():
+    """P0-3/P0-6 plumbing: tags, id selection, retriever variants, ablation."""
+    import subprocess
+    import pandas as pd
+    import run_pipeline
+    from module2_rag.retriever import Retriever
+    from module3_llm import llm_rewriter
+    from module4_eval import metrics_logger
+    from module4_eval.compare_conditions import load_all_results
+    from module4_eval.ablation import ablation_stats, ablation_markdown
+
+    # --- select_mutants: exact ids, file order kept, missing -> error
+    ms = [{"mutant_id": f"m{i}"} for i in range(6)]
+    with tempfile.TemporaryDirectory() as td:
+        td = Path(td)
+        (td / "ids.csv").write_text(
+            "mutant_id,x\nm4,1\nm1,1\nm4,2\n", encoding="utf-8")
+        got = [m["mutant_id"] for m in
+               run_pipeline.select_mutants(ms, ids_csv=td / "ids.csv")]
+        assert got == ["m1", "m4"], got
+        (td / "bad.csv").write_text("mutant_id\nm1\nzzz\n", encoding="utf-8")
+        try:
+            run_pipeline.select_mutants(ms, ids_csv=td / "bad.csv")
+        except SystemExit as e:
+            assert "zzz" in str(e)
+        else:
+            raise AssertionError("missing mutant id not rejected")
+        assert len(run_pipeline.select_mutants(ms, limit=3)) == 3
+        assert run_pipeline.select_mutants(ms) == ms
+
+        # --- refuse to start over a finished arm
+        run_pipeline.check_results_tag(td, "fresh")
+        (td / "raw_done.csv").write_text("x\n", encoding="utf-8")
+        try:
+            run_pipeline.check_results_tag(td, "done")
+        except SystemExit as e:
+            assert "refusing to overwrite" in str(e)
+        else:
+            raise AssertionError("existing raw_<tag>.csv not refused")
+
+    # --- CLI guards (fail before any config/model work)
+    def cli(*a):
+        r = subprocess.run([sys.executable, "run_pipeline.py", "--repo", "x", *a],
+                           capture_output=True, text=True, cwd=str(ROOT))
+        return r.returncode, r.stderr
+    rc, err = cli("--phase", "generate")
+    assert rc == 2 and "--results-tag is required" in err, (rc, err)
+    rc, err = cli("--phase", "generate", "--results-tag", "t", "--limit", "3",
+                  "--mutant-ids-from", "a.csv")
+    assert rc == 2 and "mutually exclusive" in err, (rc, err)
+    rc, err = cli("--phase", "generate", "--results-tag", "t",
+                  "--retriever-variant", "no_depfetch")
+    assert rc == 2 and "--conditions RAG" in err, (rc, err)
+    rc, err = cli("--phase", "generate", "--results-tag", "../t")
+    assert rc == 2 and "--results-tag may contain" in err, (rc, err)
+
+    # --- retriever variants on a fake index (retrieval-time switches only)
+    class FakeColl:
+        def get(self, where):
+            return {"ids": ["rates.py::const:RATE", "util.py::helper::function"],
+                    "documents": ["RATE = 5", "def helper(): ..."],
+                    "metadatas": [{"kind": "constants", "file": "rates.py",
+                                   "qualname": "const:RATE"},
+                                  {"kind": "function", "file": "util.py",
+                                   "qualname": "helper"}]}
+
+        def query(self, query_embeddings, n_results):
+            return {"ids": [["rates.py::const:OTHER", "x.py::near::function"]],
+                    "documents": [["OTHER = 1", "def near(): ..."]],
+                    "metadatas": [[{"kind": "constants", "file": "rates.py",
+                                    "qualname": "const:OTHER"},
+                                   {"kind": "function", "file": "x.py",
+                                    "qualname": "near"}]],
+                    "distances": [[0.2, 0.3]]}
+
+    class FakeModel:
+        def encode(self, qs, show_progress_bar=False):
+            class _A(list):
+                def tolist(self):
+                    return list(self)
+            return _A([[0.0, 0.0] for _ in qs])
+
+    mut = {"mutant_id": "sdl_f_1", "function": "f", "file": "a.py",
+           "mutation_class": "sdl", "mutation_description": "del",
+           "original_code": "def f(x):\n    return RATE * helper(x)\n"}
+
+    def ids(variant):
+        r = Retriever.__new__(Retriever)
+        r._coll, r._model, r.variant = FakeColl(), FakeModel(), variant
+        return {c["id"] for c in r.retrieve(mut, 8)}
+    assert ids("full") == {"rates.py::const:RATE", "util.py::helper::function",
+                           "rates.py::const:OTHER", "x.py::near::function"}
+    # no_constants drops constants from BOTH the dependency fetch and similarity
+    assert ids("no_constants") == {"util.py::helper::function",
+                                   "x.py::near::function"}
+    # no_depfetch drops the seeds only; similarity results (incl. constants) stay
+    assert ids("no_depfetch") == {"rates.py::const:OTHER", "x.py::near::function"}
+    try:
+        Retriever(None, "x", variant="bogus")
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("unknown variant accepted")
+
+    # --- call-log purpose carries condition + tag; cost is attributable
+    class Rec:
+        temp_testgen = 0.0
+
+        def __init__(self):
+            self.purposes = []
+
+        def generate_python(self, sp, up, temperature=None, purpose=""):
+            self.purposes.append(purpose)
+            return "x = 1"
+    r = Rec()
+    m = _fake_mutant("sdl")
+    llm_rewriter.rewrite_test(r, m, "t", None, "sorts",
+                              condition="FULL_CONTEXT", run_tag="fc")
+    llm_rewriter.rewrite_test(r, m, "t", [], "sorts", condition="RAG")
+    llm_rewriter.rewrite_test(r, m, "t", None, "sorts")
+    mid = m["mutant_id"]
+    assert r.purposes == [f"testgen:FULL_CONTEXT:sdl:{mid}:tag=fc",
+                          f"testgen:RAG:sdl:{mid}",  # empty chunks != NO_RAG
+                          f"testgen:NO_RAG:sdl:{mid}"], r.purposes
+    with tempfile.TemporaryDirectory() as td:
+        cfg = {"_project_root": td, "llm": {"call_log": "calls.jsonl"},
+               "output": {"results_dir": "res"}}
+        rows = [("testgen:RAG:sdl:m1:tag=abl:a0", 10, 100),
+                ("testgen:RAG:sdl:m2:tag=abl:a0", 20, 200),
+                ("testgen:NO_RAG:sdl:m1:tag=base:a0", 5, 50),
+                ("testgen:FULL_CONTEXT:sdl:m1:tag=fc:a0", 7, 700),
+                ("testgen:RAG:sdl:m1:a0", 1, 10)]  # legacy, untagged
+        (Path(td) / "calls.jsonl").write_text("\n".join(json.dumps(
+            {"purpose": p, "model": "m", "wall_seconds": 1.0,
+             "eval_count": e, "prompt_eval_count": pe}) for p, e, pe in rows),
+            encoding="utf-8")
+        c = metrics_logger.cost_from_call_log(cfg, "abl")
+        assert c["calls"].tolist() == [2]
+        assert c["total_eval_tokens"].tolist() == [30]
+        assert set(metrics_logger.cost_from_call_log(cfg)["results_tag"]) == {
+            "abl", "base", "fc", "(untagged)"}
+        assert metrics_logger.cost_from_call_log(cfg, "nope").empty
+
+        # --- loaders: tagged files never leak into the default glob
+        res = Path(td) / "res"
+        res.mkdir()
+        base = {"mutant_id": "a", "subject": "s", "condition": "RAG", "k": 5,
+                "mutation_class": "sdl", "status": "KILLED", "killed": True,
+                "valid_test": True, "retry_used": False,
+                "killed_first_attempt": True, "wall_seconds": 1.0}
+        pd.DataFrame([{**base, "results_tag": None}]).to_csv(
+            res / "raw_legacy.csv", index=False)
+        pd.DataFrame([{**base, "results_tag": "fc", "condition": "FULL_CONTEXT",
+                       "k": None}]).to_csv(res / "raw_fc.csv", index=False)
+        d = load_all_results(cfg)
+        assert set(d["condition"]) == {"RAG"}, d
+        d = load_all_results(cfg, tags=["legacy", "fc"])
+        assert set(d["condition"]) == {"RAG", "FULL_CONTEXT"}
+        try:
+            load_all_results(cfg, tags=["missing"])
+        except FileNotFoundError:
+            pass
+        else:
+            raise AssertionError("missing tag file not reported")
+
+    # --- ablation table: paired vs reference, own artifact
+    def arm(killed, variant):
+        return pd.DataFrame([{"mutant_id": f"m{i}", "subject": "ctxlib",
+                              "condition": "RAG", "k": 5, "killed": bool(kv),
+                              "valid_test": True, "retriever_variant": variant}
+                             for i, kv in enumerate(killed)])
+    ref = arm([1] * 16 + [0] * 4, "full")
+    s = ablation_stats(ref, {"nc": arm([1] * 8 + [0] * 12, "no_constants"),
+                             "nd": arm([1] * 16 + [0] * 4, "no_depfetch")})
+    nc, nd = s["arms"]
+    assert (nc["discordant_b"], nc["discordant_c"]) == (8, 0)
+    assert nc["variant"] == ["no_constants"]
+    assert abs(nc["p_exact"] - 2 * 0.5 ** 8) < 1e-12
+    assert nc["p_holm"] >= nc["p_exact"]
+    assert nd["p_exact"] == 1.0 and nd["note"]
+    assert "| nc | 8/20 (40.0%)" in ablation_markdown(s)
+    try:
+        ablation_stats(ref, {"bad": arm([1] * 5, "no_depfetch")})
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("unpaired ablation arm accepted")
+    print("  tagged runs: id selection, tag refusal, CLI guards, retriever "
+          "variants, call-log tags/cost, loaders, ablation table OK")
+
+
 def test_core_misc():
     from core.hardware import recommend_model
     from core.guards import assert_fork_capable_linux, EnvironmentGuardError
@@ -581,7 +787,7 @@ ALL = [test_sdl_generator, test_hom_combiner, test_schema_roundtrip,
        test_mutmut_results_parser, test_ollama_client_rest,
        test_prompt_templates, test_agentic_retry_loop,
        test_metrics_and_figures, test_headline_equal_budget, test_paired_stats,
-       test_three_arm_pipeline,
+       test_three_arm_pipeline, test_tagged_runs,
        test_core_misc,
        test_input_security, test_checkpoint]
 

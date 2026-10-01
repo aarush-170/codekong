@@ -20,6 +20,44 @@ from core.guards import assert_fork_capable_linux, assert_not_windows_mount
 from core.hardware import recommend_model
 
 
+def select_mutants(mutants: list[dict], limit: int | None = None,
+                   ids_csv: str | Path | None = None) -> list[dict]:
+    """Pick the mutants to run. --limit is the seeded random sample;
+    --mutant-ids-from runs exactly the mutant_ids in a CSV (file order kept)
+    and fails loudly if any are absent from the mutant file."""
+    if ids_csv is not None:
+        import csv
+        with open(ids_csv, newline="", encoding="utf-8") as fh:
+            rd = csv.DictReader(fh)
+            if "mutant_id" not in (rd.fieldnames or []):
+                raise SystemExit(f"{ids_csv}: no mutant_id column")
+            wanted = {row["mutant_id"] for row in rd if row["mutant_id"]}
+        have = {m["mutant_id"] for m in mutants}
+        missing = sorted(wanted - have)
+        if missing:
+            raise SystemExit(f"{len(missing)} of {len(wanted)} mutant_ids in "
+                             f"{ids_csv} are missing from the mutant file: "
+                             f"{missing}")
+        return [m for m in mutants if m["mutant_id"] in wanted]
+    if limit and limit < len(mutants):
+        # Deterministic random sample, NOT mutants[:limit]: the head of the
+        # list is alphabetical by file, so small probes used to land entirely
+        # on one file's worst-case code (e.g. external_sort's I/O classes)
+        # and measure the subject's pathology instead of the model.
+        import random
+        return random.Random(42).sample(mutants, limit)
+    return mutants
+
+
+def check_results_tag(results_dir: Path, tag: str) -> None:
+    """Refuse to start if this tag's output exists: a finished arm must never
+    be overwritten (the untagged files are the committed July evidence)."""
+    raw = Path(results_dir) / f"raw_{tag}.csv"
+    if raw.exists():
+        raise SystemExit(f"{raw} already exists — refusing to overwrite a "
+                         "finished run. Choose a new --results-tag.")
+
+
 def phase_mutate(cfg, args, client):
     from agentic import mutation_agent
     assert_fork_capable_linux()
@@ -42,21 +80,19 @@ def phase_generate(cfg, args, client):
     from module4_eval.validator import audit_results
     from module4_eval.checkpoint import Checkpoint
 
-    mutants = schema.load_mutants(resolve(cfg, cfg["output"]["surviving_mutants"]))
-    if args.limit and args.limit < len(mutants):
-        # Deterministic random sample, NOT mutants[:limit]: the head of the
-        # list is alphabetical by file, so small probes used to land entirely
-        # on one file's worst-case code (e.g. external_sort's I/O classes)
-        # and measure the subject's pathology instead of the model.
-        import random
-        mutants = random.Random(42).sample(mutants, args.limit)
-    print(f"[pipeline] generating tests for {len(mutants)} mutants")
+    results_dir = resolve(cfg, cfg["output"]["results_dir"])
+    tag = args.results_tag
+    check_results_tag(results_dir, tag)
+    mutants = select_mutants(
+        schema.load_mutants(resolve(cfg, cfg["output"]["surviving_mutants"])),
+        limit=args.limit, ids_csv=args.mutant_ids_from)
+    print(f"[pipeline] generating tests for {len(mutants)} mutants "
+          f"(results tag: {tag}, retriever variant: {args.retriever_variant})")
 
     # Crash-safe checkpoint: each result is streamed to an append-only side-file
     # and a rerun of the SAME command resumes, skipping finished work. Vital for
     # the overnight run on a machine without Claude Code to babysit it.
-    results_dir = resolve(cfg, cfg["output"]["results_dir"])
-    ck = Checkpoint(results_dir / f"_checkpoint_{args.repo}.jsonl")
+    ck = Checkpoint(results_dir / f"_checkpoint_{tag}.jsonl")
     all_results = ck.load()
     if all_results:
         print(f"[pipeline] resuming from {ck.path.name}: "
@@ -68,29 +104,31 @@ def phase_generate(cfg, args, client):
         for m in mutants:
             if ck.is_done(m["mutant_id"], "NO_RAG", None):
                 continue
-            r = generate_and_validate(cfg, args.repo, m, None, "NO_RAG", client)
+            r = generate_and_validate(cfg, args.repo, m, None, "NO_RAG", client,
+                                     run_tag=tag)
             print(f"[NO_RAG] {m['mutant_id']}: {r['status']}")
             ck.record(r)
             all_results.append(r)
 
     if "RAG" in conditions:
         ks = args.k or cfg["rag"]["k_values"]
-        retriever = Retriever(cfg, args.repo)
+        retriever = Retriever(cfg, args.repo, args.retriever_variant)
         for k in ks:
             # Persist the retrieval handoff for auditability (JSON file
             # protocol between Retrieval Agent and Test Generation Agent).
-            retrieval_agent.run(cfg, args.repo, k=k)
+            retrieval_agent.run(cfg, args.repo, k=k, mutants=mutants,
+                                variant=args.retriever_variant)
             for m in mutants:
                 if ck.is_done(m["mutant_id"], "RAG", k):
                     continue
                 chunks = retriever.retrieve(m, k)
                 r = generate_and_validate(cfg, args.repo, m, chunks, "RAG",
-                                          client, k=k)
+                                          client, k=k, run_tag=tag,
+                                          variant=args.retriever_variant)
                 print(f"[RAG k={k}] {m['mutant_id']}: {r['status']}")
                 ck.record(r)
                 all_results.append(r)
 
-    tag = f"{args.repo}"
     log_metrics(cfg, all_results, tag)
     audit_results(all_results)
     raw = results_dir / f"records_{tag}.json"
@@ -112,10 +150,32 @@ def main():
                     choices=["both", "RAG", "NO_RAG"])
     ap.add_argument("--k", type=int, nargs="*", default=None)
     ap.add_argument("--limit", type=int, default=None,
-                    help="cap number of mutants (smoke runs)")
+                    help="cap number of mutants (seeded random sample)")
+    ap.add_argument("--mutant-ids-from", metavar="CSV", default=None,
+                    help="run exactly the mutant_ids in this CSV (column "
+                         "mutant_id); error if any are missing; excludes --limit")
+    ap.add_argument("--results-tag", metavar="TAG", default=None,
+                    help="REQUIRED for generate: outputs raw_/summary_/records_"
+                         "<TAG>, checkpoint _checkpoint_<TAG>.jsonl; refuses "
+                         "to start if raw_<TAG>.csv exists")
+    ap.add_argument("--retriever-variant", default="full",
+                    choices=["full", "no_constants", "no_depfetch"],
+                    help="RAG ablation switch (retrieval-time, same index); "
+                         "RAG-only")
     ap.add_argument("--skip-mutmut", action="store_true")
     ap.add_argument("--skip-semantic", action="store_true")
     args = ap.parse_args()
+    if args.mutant_ids_from and args.limit:
+        ap.error("--mutant-ids-from and --limit are mutually exclusive")
+    if args.phase in ("all", "generate"):
+        if not args.results_tag:
+            ap.error("--results-tag is required when generating (it keeps "
+                     "runs from overwriting the committed results)")
+        import re
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", args.results_tag):
+            ap.error("--results-tag may contain only letters, digits, _ . -")
+    if args.retriever_variant != "full" and args.conditions != "RAG":
+        ap.error("--retriever-variant other than 'full' needs --conditions RAG")
 
     cfg = load_config()
     assert_not_windows_mount(cfg["_project_root"])

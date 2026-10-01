@@ -89,15 +89,24 @@ def build_prompt(mutant: dict, existing_tests: str,
 
 def rewrite_test(client, mutant: dict, existing_tests: str,
                  context_chunks: list[dict] | None, subject_subdir: str,
-                 feedback: str | None = None) -> str | None:
+                 feedback: str | None = None, condition: str | None = None,
+                 run_tag: str | None = None) -> str | None:
     """Returns validated-parsing Python test source, or None if the model
-    failed twice (ollama_client retries once internally)."""
+    failed twice (ollama_client retries once internally).
+
+    condition/run_tag label the call-log purpose so per-arm token cost is
+    attributable. condition defaults to the old inference (RAG iff chunks)."""
     user_prompt = build_prompt(mutant, existing_tests, context_chunks,
                                subject_subdir, feedback)
-    condition = "RAG" if context_chunks else "NO_RAG"
+    condition = condition or ("RAG" if context_chunks else "NO_RAG")
     # mutant_id in purpose enables per-mutant token attribution from the
-    # JSONL call log (RQ4 / UI cost views). metrics_logger's class regex
-    # still matches: it captures the third segment and ignores the rest.
+    # JSONL call log (RQ4 / UI cost views). Layout (colon-separated, fixed
+    # positions): testgen:<condition>:<class>:<mutant_id>[:tag=<run_tag>]
+    # and the client appends :a<N> for its own parse-retry.
+    purpose = (f"testgen:{condition}:{mutant['mutation_class']}:"
+               f"{mutant['mutant_id']}")
+    if run_tag:
+        purpose += f":tag={run_tag}"
     return client.generate_python(
         SYSTEM_PROMPT, user_prompt, temperature=client.temp_testgen,
-        purpose=f"testgen:{condition}:{mutant['mutation_class']}:{mutant['mutant_id']}")
+        purpose=purpose)

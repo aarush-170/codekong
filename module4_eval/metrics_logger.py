@@ -34,6 +34,8 @@ def results_to_frame(results: list[dict]) -> pd.DataFrame:
             "killed_first_attempt": r["status"] == "KILLED"
                                     and not r.get("retry_used"),
             "wall_seconds": r.get("wall_seconds"),
+            "results_tag": r.get("results_tag"),
+            "retriever_variant": r.get("retriever_variant"),
         })
     return pd.DataFrame(rows)
 
@@ -50,8 +52,12 @@ def summarize(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-def cost_from_call_log(cfg: dict) -> pd.DataFrame:
-    """Token-cost-equivalent metrics from the JSONL call log (RQ4)."""
+def cost_from_call_log(cfg: dict, tag: str | None = None) -> pd.DataFrame:
+    """Token-cost-equivalent metrics from the JSONL call log (RQ4).
+
+    Purpose layout: testgen:<condition>:<class>:<mutant_id>[:tag=<tag>][:aN].
+    With tag, only calls from that tagged run are counted; without, every
+    testgen call is (untagged legacy calls get tag "(untagged)")."""
     path = resolve(cfg, cfg["llm"]["call_log"])
     if not path.exists():
         return pd.DataFrame()
@@ -61,10 +67,17 @@ def cost_from_call_log(cfg: dict) -> pd.DataFrame:
     if df.empty:
         return df
     df["mutation_class"] = df["purpose"].str.extract(
-        r"testgen:(?:RAG|NO_RAG):(\w+)")
-    df["condition"] = df["purpose"].str.extract(r"testgen:(RAG|NO_RAG):")
+        r"testgen:(?:RAG|NO_RAG|FULL_CONTEXT):(\w+)")
+    df["condition"] = df["purpose"].str.extract(
+        r"testgen:(RAG|NO_RAG|FULL_CONTEXT):")
+    df["results_tag"] = df["purpose"].str.extract(r":tag=([^:]+)")
     keep = df.dropna(subset=["condition"])
-    return keep.groupby(["condition", "mutation_class"]).agg(
+    if tag is not None:
+        keep = keep[keep["results_tag"] == tag]
+    keep = keep.assign(results_tag=keep["results_tag"].fillna("(untagged)"))
+    if keep.empty:
+        return keep
+    return keep.groupby(["results_tag", "condition", "mutation_class"]).agg(
         calls=("model", "count"),
         total_wall_seconds=("wall_seconds", "sum"),
         total_eval_tokens=("eval_count", "sum"),
@@ -78,7 +91,7 @@ def log_metrics(cfg: dict, results: list[dict], tag: str) -> Path:
     df.to_csv(outdir / f"raw_{tag}.csv", index=False)
     summary = summarize(df)
     summary.to_csv(outdir / f"summary_{tag}.csv", index=False)
-    cost = cost_from_call_log(cfg)
+    cost = cost_from_call_log(cfg, tag)
     if not cost.empty:
         cost.to_csv(outdir / f"cost_{tag}.csv", index=False)
     print(summary.to_string(index=False))

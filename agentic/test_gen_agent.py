@@ -49,7 +49,9 @@ def _ensure_scratch(cfg: dict, subject_key: str) -> Path:
 
 def generate_and_validate(cfg: dict, subject_key: str, mutant: dict,
                           context_chunks: list[dict] | None, condition: str,
-                          client, k: int | None = None) -> dict:
+                          client, k: int | None = None,
+                          run_tag: str | None = None,
+                          variant: str | None = None) -> dict:
     scratch = _ensure_scratch(cfg, subject_key)
     subdir = cfg["subjects"][subject_key].get("subdir", "")
     timeout = cfg["mutation"]["test_timeout_seconds"]
@@ -59,6 +61,7 @@ def generate_and_validate(cfg: dict, subject_key: str, mutant: dict,
     record = {"mutant_id": mutant["mutant_id"],
               "mutation_class": mutant["mutation_class"],
               "condition": condition, "k": k, "subject": subject_key,
+              "results_tag": run_tag, "retriever_variant": variant,
               "status": None, "attempts": 0, "retry_used": False,
               "valid_test_produced": False, "validation": [],
               "wall_seconds": None, "test_file": None,
@@ -80,7 +83,9 @@ def generate_and_validate(cfg: dict, subject_key: str, mutant: dict,
         record["retry_used"] = attempt > 0
         test_code = llm_rewriter.rewrite_test(client, mutant, existing,
                                               context_chunks, subdir,
-                                              feedback=feedback)
+                                              feedback=feedback,
+                                              condition=condition,
+                                              run_tag=run_tag)
         if test_code is None:
             record["validation"].append({"attempt": attempt + 1,
                                          "status": "GEN_FAILED",
@@ -101,7 +106,10 @@ def generate_and_validate(cfg: dict, subject_key: str, mutant: dict,
         # Persist every generated test for auditability.
         outdir = resolve(cfg, cfg["output"]["generated_tests_dir"])
         outdir.mkdir(parents=True, exist_ok=True)
-        tpath = outdir / f"{mutant['mutant_id']}_{condition}_a{attempt + 1}.py"
+        # Tagged runs keep their own files so arms/ks don't overwrite each other.
+        stem = (f"{mutant['mutant_id']}_{condition}_{run_tag}" if run_tag
+                else f"{mutant['mutant_id']}_{condition}")
+        tpath = outdir / f"{stem}_a{attempt + 1}.py"
         tpath.write_text(test_code, encoding="utf-8")
         record["test_file"] = str(tpath)
 

@@ -23,9 +23,28 @@ from module4_eval.metrics_logger import results_to_frame, summarize
 HARDNESS_ORDER = ["syntactic", "sdl", "semantic", "higher_order"]
 
 
-def load_all_results(cfg: dict, pattern: str = "raw_*.csv") -> pd.DataFrame:
+def load_all_results(cfg: dict, pattern: str = "raw_*.csv",
+                     tags: list[str] | None = None) -> pd.DataFrame:
+    """Load per-mutant raw results.
+
+    tags=None: glob `pattern`, but SKIP files written by a --results-tag run
+    (their rows carry a non-empty results_tag) so extra arms (FULL_CONTEXT,
+    ablations, drift re-runs) never silently merge into the headline.
+    tags=[...]: load exactly raw_<tag>.csv for each tag, nothing else."""
     outdir = resolve(cfg, cfg["output"]["results_dir"])
-    frames = [pd.read_csv(p) for p in sorted(outdir.glob(pattern))]
+    if tags is not None:
+        paths = [outdir / f"raw_{t}.csv" for t in tags]
+        for p in paths:
+            if not p.exists():
+                raise FileNotFoundError(f"{p} not found")
+        frames = [pd.read_csv(p) for p in paths]
+    else:
+        frames = []
+        for p in sorted(outdir.glob(pattern)):
+            f = pd.read_csv(p)
+            if "results_tag" in f and f["results_tag"].notna().any():
+                continue
+            frames.append(f)
     if not frames:
         raise FileNotFoundError(f"no {pattern} under {outdir} — run the "
                                 "pipeline first")
