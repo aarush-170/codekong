@@ -164,7 +164,7 @@ python -m module4_eval.headline_analysis       # regenerates headline_k5.* and k
 python -m module4_eval.stats                   # regenerates stats_*.json
 ```
 
-Verifying quoted paper text (do this for every new EDITS_PENDING entry): extract the docx text with Python's `zipfile` reading `word/document.xml`, joining `<w:t>` runs per `<w:p>` paragraph (use `PYTHONIOENCODING=utf-8` on Windows), then check each quoted "current" string is a substring. The draft uses curly apostrophes (’) and em dashes (—) — match them exactly.
+Verifying quoted paper text (do this for every new EDITS_PENDING entry): `python tools/verify_paper_quotes.py` checks every `**…Current…**` quote block in `paper/EDITS_PENDING.md` is verbatim in the `.docx` (currently 15 blocks, 0 missing). `python tools/verify_paper_quotes.py --dump` prints the paper's full text — use it instead of opening the `.docx`. The draft uses curly apostrophes (’) and em dashes (—); match them exactly.
 
 Web lookups that worked: arXiv API `https://export.arxiv.org/api/query?id_list=...` (use https, `curl -L`), Crossref `https://api.crossref.org/works/<doi>` and `?query.bibliographic=`, ACL Anthology `.bib` URLs. ACM DL pages return 403; DBLP was unreachable; Semantic Scholar rate-limits.
 
@@ -183,3 +183,4 @@ Web lookups that worked: arXiv API `https://export.arxiv.org/api/query?id_list=.
 | `paper/related_work_additions.md` | Verified BibTeX/IEEE strings + positioning |
 | `paper/CLAIMS_AUDIT.md` | Claim-by-claim audit of the draft |
 | `RUNBOOK_WSL_SESSION.md` | WSL experiment session runbook |
+| `tools/verify_paper_quotes.py` | Checks EDITS_PENDING quotes are verbatim in the .docx; `--dump` prints paper text |
